@@ -29,9 +29,14 @@ def download_from_link(link, output_format="mp3"):
             info_dict = ydl.extract_info(link, download=True)
             filename = ydl.prepare_filename(info_dict)
 
-            # Ensure the downloaded file exists
+            # Adjust for possible extensions (e.g., .webm before .mp3 conversion)
             if not os.path.isfile(filename):
-                return None, "Erreur : Fichier téléchargé introuvable."
+                base, _ = os.path.splitext(filename)
+                filename = f"{base}.{output_format}"
+
+            # Ensure the file exists after potential post-processing
+            if not os.path.isfile(filename):
+                return None, "Erreur : Fichier téléchargé introuvable après conversion."
 
             # Convert the downloaded file to bytes for Streamlit preview
             with open(filename, "rb") as f:
