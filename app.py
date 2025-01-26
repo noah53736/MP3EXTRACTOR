@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 import yt_dlp
+import io
+from pydub import AudioSegment
 
 # ==========================
 # Function to Download and Convert
@@ -13,7 +15,6 @@ def download_from_link(link, output_format="mp3"):
     output_path = "downloads"
     os.makedirs(output_path, exist_ok=True)  # Create downloads folder if it doesn't exist
 
-    # yt-dlp options
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
@@ -26,10 +27,16 @@ def download_from_link(link, output_format="mp3"):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([link])
-        return f"Téléchargement terminé. Fichiers disponibles dans le dossier '{output_path}'."
+            info_dict = ydl.extract_info(link, download=True)
+            filename = ydl.prepare_filename(info_dict)
+
+        # Convert the downloaded file to bytes for Streamlit preview
+        with open(filename, "rb") as f:
+            audio_bytes = f.read()
+
+        return audio_bytes, filename
     except Exception as e:
-        return f"Erreur lors du téléchargement : {e}"
+        return None, f"Erreur lors du téléchargement : {e}"
 
 # ==========================
 # Streamlit App
@@ -51,8 +58,20 @@ def main():
             st.error("Veuillez entrer un lien valide.")
         else:
             with st.spinner("Téléchargement en cours..."):
-                result = download_from_link(link, output_format=format_choice)
-                st.success(result)
+                audio_bytes, result = download_from_link(link, output_format=format_choice)
+                if audio_bytes:
+                    st.success("Téléchargement et conversion terminés !")
+                    st.audio(audio_bytes, format="audio/mp3")
+
+                    # Button to download the audio file
+                    st.download_button(
+                        label="Télécharger le fichier",
+                        data=audio_bytes,
+                        file_name=result.split("/")[-1],
+                        mime="audio/mpeg" if format_choice == "mp3" else "video/mp4"
+                    )
+                else:
+                    st.error(result)
 
     # Information section
     st.write("---")
