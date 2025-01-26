@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 import yt_dlp
-from pydub import AudioSegment
 
 # ==========================
 # Function to Download and Convert
@@ -22,6 +21,7 @@ def download_from_link(link, output_format="mp3"):
             'preferredcodec': output_format,
             'preferredquality': '192',
         }],
+        'windowsfilenames': True  # Ensure filenames are compatible across OS
     }
 
     try:
@@ -29,9 +29,13 @@ def download_from_link(link, output_format="mp3"):
             info_dict = ydl.extract_info(link, download=True)
             filename = ydl.prepare_filename(info_dict)
 
-        # Convert the downloaded file to bytes for Streamlit preview
-        with open(filename, "rb") as f:
-            audio_bytes = f.read()
+            # Ensure the downloaded file exists
+            if not os.path.isfile(filename):
+                return None, "Erreur : Fichier téléchargé introuvable."
+
+            # Convert the downloaded file to bytes for Streamlit preview
+            with open(filename, "rb") as f:
+                audio_bytes = f.read()
 
         return audio_bytes, filename
     except Exception as e:
