@@ -1,7 +1,8 @@
 import streamlit as st
 import os
 import yt_dlp
-import subprocess
+import requests
+import re
 
 # ==========================
 # Function to Identify Platform
@@ -20,55 +21,55 @@ def identify_platform(link):
         return "Unknown"
 
 # ==========================
+# Metadata Extraction Functions
+# ==========================
+def get_spotify_metadata(link):
+    """
+    Extract metadata (title, artist) from a Spotify track URL.
+    """
+    try:
+        response = requests.get(link)
+        if response.status_code == 200:
+            title_match = re.search('<title>(.*?)</title>', response.text)
+            if title_match:
+                title = title_match.group(1).replace(" - Spotify", "").strip()
+                return title
+        return "Titre inconnu"
+    except Exception as e:
+        return f"Erreur Spotify : {e}"
+
+def get_soundcloud_metadata(link):
+    """
+    Extract metadata (title) from a SoundCloud URL.
+    """
+    try:
+        response = requests.get(link)
+        if response.status_code == 200:
+            title_match = re.search('<title>(.*?)</title>', response.text)
+            if title_match:
+                title = title_match.group(1).replace(" | Free Listening on SoundCloud", "").strip()
+                return title
+        return "Titre inconnu"
+    except Exception as e:
+        return f"Erreur SoundCloud : {e}"
+
+# ==========================
 # Function to Search YouTube Without API
 # ==========================
-def search_youtube_without_api(query):
+def search_youtube_with_metadata(metadata):
     """
-    Use yt-dlp to search for a video on YouTube based on the query.
-    Return the URL of the first video found.
+    Search YouTube using extracted metadata from Spotify/SoundCloud.
     """
-    search_url = f"ytsearch:{query}"
+    query = f"ytsearch:{metadata}"
     ydl_opts = {
         'quiet': True,
         'skip_download': True,
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(search_url, download=False)
+        info = ydl.extract_info(query, download=False)
         if 'entries' in info and len(info['entries']) > 0:
             return info['entries'][0]['webpage_url']
     return None
-
-# ==========================
-# Function to Handle DRM Content
-# ==========================
-def handle_drm_content(link):
-    """
-    Attempt to handle DRM-protected content using an external downloader.
-    This function assumes StreamFab DRM M3U8 Downloader is installed.
-    """
-    output_path = "downloads"
-    os.makedirs(output_path, exist_ok=True)
-
-    try:
-        # Command to invoke StreamFab DRM M3U8 Downloader (example, may vary)
-        command = [
-            "streamfab", "--url", link, "--output", output_path
-        ]
-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        if result.returncode == 0:
-            # Find the downloaded file in the output directory
-            downloaded_files = [f for f in os.listdir(output_path) if f.endswith(('.mp4', '.mkv'))]
-            if downloaded_files:
-                file_path = os.path.join(output_path, downloaded_files[0])
-                with open(file_path, "rb") as f:
-                    return f.read(), file_path
-            else:
-                return None, "Erreur : Aucun fichier téléchargé trouvé."
-        else:
-            return None, f"Erreur DRM : {result.stderr}"
-    except Exception as e:
-        return None, f"Erreur lors du traitement DRM : {e}"
 
 # ==========================
 # Function to Download and Convert
@@ -112,8 +113,6 @@ def download_from_link(link):
 
         return audio_bytes, filename
     except Exception as e:
-        if "DRM" in str(e):
-            return handle_drm_content(link)
         return None, f"Erreur lors du téléchargement : {e}"
 
 # ==========================
@@ -135,18 +134,28 @@ def main():
             platform = identify_platform(link)
 
             if platform == "Spotify":
-                st.info("Lien Spotify détecté. Recherche sur YouTube...")
-                # Example: Hardcoded query for simplicity
-                query = "Example song by Example artist"
-                youtube_url = search_youtube_without_api(query)
+                st.info("Lien Spotify détecté. Extraction des métadonnées...")
+                metadata = get_spotify_metadata(link)
+                st.write(f"Méta-données trouvées : {metadata}")
+                youtube_url = search_youtube_with_metadata(metadata)
                 if youtube_url:
+                    st.info("Correspondance trouvée sur YouTube.")
                     link = youtube_url
                 else:
                     st.error("Impossible de trouver une correspondance sur YouTube.")
                     return
 
             elif platform == "SoundCloud":
-                st.info("Lien SoundCloud détecté. Traitement en cours...")
+                st.info("Lien SoundCloud détecté. Extraction des métadonnées...")
+                metadata = get_soundcloud_metadata(link)
+                st.write(f"Méta-données trouvées : {metadata}")
+                youtube_url = search_youtube_with_metadata(metadata)
+                if youtube_url:
+                    st.info("Correspondance trouvée sur YouTube.")
+                    link = youtube_url
+                else:
+                    st.error("Impossible de trouver une correspondance sur YouTube.")
+                    return
 
             elif platform == "YouTube":
                 st.info("Lien YouTube détecté. Téléchargement en cours...")
@@ -173,7 +182,7 @@ def main():
 
     # Information section
     st.write("---")
-    st.info("Cette application utilise yt-dlp, FFmpeg et peut gérer certains contenus protégés par DRM via un outil externe. Assurez-vous d'utiliser cette application de manière conforme aux lois sur les droits d'auteur.")
+    st.info("Cette application utilise yt-dlp, FFmpeg et une extraction intelligente des métadonnées pour garantir des téléchargements précis. Assurez-vous d'utiliser cette application de manière conforme aux lois sur les droits d'auteur.")
 
 # Run the Streamlit app
 if __name__ == "__main__":
