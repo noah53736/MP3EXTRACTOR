@@ -3,6 +3,8 @@ import os
 import yt_dlp
 import requests
 import re
+from PIL import Image
+from io import BytesIO
 
 # ==========================
 # Function to Identify Platform
@@ -69,13 +71,13 @@ def search_youtube_with_metadata(metadata, attempt=1):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(query, download=False)
         if 'entries' in info and len(info['entries']) > 0:
-            return info['entries'][0]['webpage_url'], info['entries'][0]['title']
-    return None, None
+            return info['entries'][0]['webpage_url'], info['entries'][0]['title'], info['entries'][0]['thumbnail']
+    return None, None, None
 
 # ==========================
 # Function to Download and Retry
 # ==========================
-def download_with_retry(link, metadata):
+def download_with_retry(link, metadata, output_format="mp3", custom_name=None):
     """
     Attempt to download a YouTube video, retrying with alternative links if protected.
     """
@@ -84,10 +86,10 @@ def download_with_retry(link, metadata):
 
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
+        'outtmpl': os.path.join(output_path, f"%(title)s.%(ext)s" if not custom_name else os.path.join(output_path, f"{custom_name}.%(ext)s")),
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
+            'preferredcodec': output_format,
             'preferredquality': '320',
         }],
         'windowsfilenames': True
@@ -103,7 +105,7 @@ def download_with_retry(link, metadata):
                 # Adjust for possible extensions (e.g., .webm before .mp3 conversion)
                 if not os.path.isfile(filename):
                     base, _ = os.path.splitext(filename)
-                    filename = f"{base}.mp3"
+                    filename = f"{base}.{output_format}"
 
                 # Ensure the file exists after potential post-processing
                 if not os.path.isfile(filename):
@@ -117,7 +119,7 @@ def download_with_retry(link, metadata):
         except Exception as e:
             if "HTTP Error 403" in str(e):
                 st.warning(f"Lien protégé détecté lors de la tentative {attempt}. Recherche d'un autre lien...")
-                link, new_title = search_youtube_with_metadata(metadata, attempt)
+                link, new_title, _ = search_youtube_with_metadata(metadata, attempt)
                 if not link:
                     return None, "Erreur : Aucune correspondance libre trouvée après plusieurs tentatives.", None
                 attempt += 1
@@ -130,13 +132,18 @@ def download_with_retry(link, metadata):
 # Streamlit App
 # ==========================
 def main():
-    st.title("Téléchargeur universel de contenu (MP3 uniquement)")
+    st.title("Téléchargeur universel de contenu (MP3, WAV, AAC)")
 
     st.write("Entrez un lien provenant de YouTube, SoundCloud, Spotify, ou d'autres plateformes prises en charge.")
     st.write("**Créé par NOAH BEN**")
 
     # Input for URL
     link = st.text_input("Lien de la vidéo ou audio", "")
+
+    # Options for format and custom filename
+    st.sidebar.header("Options de téléchargement")
+    output_format = st.sidebar.selectbox("Format de sortie", ["mp3", "wav", "aac"], index=0)
+    custom_name = st.sidebar.text_input("Nom personnalisé du fichier (optionnel)", "")
 
     # Button to trigger download
     if st.button("Télécharger"):
@@ -149,10 +156,15 @@ def main():
                 st.info("Lien Spotify détecté. Extraction des métadonnées...")
                 metadata = get_spotify_metadata(link)
                 st.write(f"Méta-données trouvées : {metadata}")
-                youtube_url, _ = search_youtube_with_metadata(metadata)
+                youtube_url, _, thumbnail_url = search_youtube_with_metadata(metadata)
                 if youtube_url:
                     st.info("Correspondance trouvée sur YouTube.")
                     link = youtube_url
+                    if thumbnail_url:
+                        response = requests.get(thumbnail_url)
+                        if response.status_code == 200:
+                            img = Image.open(BytesIO(response.content))
+                            st.image(img, caption="Miniature de la vidéo")
                 else:
                     st.error("Impossible de trouver une correspondance sur YouTube.")
                     return
@@ -161,10 +173,15 @@ def main():
                 st.info("Lien SoundCloud détecté. Extraction des métadonnées...")
                 metadata = get_soundcloud_metadata(link)
                 st.write(f"Méta-données trouvées : {metadata}")
-                youtube_url, _ = search_youtube_with_metadata(metadata)
+                youtube_url, _, thumbnail_url = search_youtube_with_metadata(metadata)
                 if youtube_url:
                     st.info("Correspondance trouvée sur YouTube.")
                     link = youtube_url
+                    if thumbnail_url:
+                        response = requests.get(thumbnail_url)
+                        if response.status_code == 200:
+                            img = Image.open(BytesIO(response.content))
+                            st.image(img, caption="Miniature de la vidéo")
                 else:
                     st.error("Impossible de trouver une correspondance sur YouTube.")
                     return
@@ -178,20 +195,20 @@ def main():
                 return
 
             with st.spinner("Téléchargement en cours..."):
-                audio_bytes, result, final_link = download_with_retry(link, metadata)
+                audio_bytes, result, final_link = download_with_retry(link, metadata, output_format, custom_name)
                 if audio_bytes:
                     st.success("Téléchargement et conversion terminés !")
-                    st.audio(audio_bytes, format="audio/mp3")
+                    st.audio(audio_bytes, format=f"audio/{output_format}")
 
                     # Display the final link used
                     st.write(f"[Lien de la vidéo utilisée]({final_link})")
 
                     # Button to download the audio file
                     st.download_button(
-                        label="Télécharger le fichier MP3",
+                        label="Télécharger le fichier",
                         data=audio_bytes,
                         file_name=result.split("/")[-1],
-                        mime="audio/mpeg"
+                        mime=f"audio/{output_format}"
                     )
                 else:
                     st.error(result)
@@ -203,3 +220,4 @@ def main():
 # Run the Streamlit app
 if __name__ == "__main__":
     main()
+
