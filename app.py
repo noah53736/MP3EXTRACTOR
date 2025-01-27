@@ -135,7 +135,7 @@ def main():
     st.title("Téléchargeur universel de contenu (MP3, WAV, AAC)")
 
     st.write("Entrez un lien provenant de YouTube, SoundCloud, Spotify, ou d'autres plateformes prises en charge.")
-    st.write("**Créé par NOAH BEN**")
+    st.write("**Créé par NB**")
 
     # Input for URL
     link = st.text_input("Lien de la vidéo ou audio", "")
@@ -220,4 +220,3 @@ def main():
 # Run the Streamlit app
 if __name__ == "__main__":
     main()
-
