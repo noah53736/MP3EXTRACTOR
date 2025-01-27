@@ -56,11 +56,12 @@ def get_soundcloud_metadata(link):
 # ==========================
 # Function to Search YouTube Without API
 # ==========================
-def search_youtube_with_metadata(metadata):
+def search_youtube_with_metadata(metadata, attempt=1):
     """
     Search YouTube using extracted metadata from Spotify/SoundCloud.
+    Retry if the first video is protected or unavailable.
     """
-    query = f"ytsearch:{metadata}"
+    query = f"ytsearch{attempt}:{metadata}"
     ydl_opts = {
         'quiet': True,
         'skip_download': True,
@@ -68,19 +69,18 @@ def search_youtube_with_metadata(metadata):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(query, download=False)
         if 'entries' in info and len(info['entries']) > 0:
-            return info['entries'][0]['webpage_url']
-    return None
+            return info['entries'][0]['webpage_url'], info['entries'][0]['title']
+    return None, None
 
 # ==========================
-# Function to Download and Convert
+# Function to Download and Retry
 # ==========================
-def download_from_link(link):
+def download_with_retry(link, metadata):
     """
-    Download and convert a video/audio file from a given link (YouTube, SoundCloud, etc.)
-    into MP3 format with the highest possible quality.
+    Attempt to download a YouTube video, retrying with alternative links if protected.
     """
     output_path = "downloads"
-    os.makedirs(output_path, exist_ok=True)  # Create downloads folder if it doesn't exist
+    os.makedirs(output_path, exist_ok=True)
 
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -88,34 +88,43 @@ def download_from_link(link):
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '320',  # Set to highest quality
+            'preferredquality': '320',
         }],
-        'windowsfilenames': True  # Ensure filenames are compatible across OS
+        'windowsfilenames': True
     }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(link, download=True)
-            filename = ydl.prepare_filename(info_dict)
+    attempt = 1
+    while attempt <= 3:
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info_dict = ydl.extract_info(link, download=True)
+                filename = ydl.prepare_filename(info_dict)
 
-            # Adjust for possible extensions (e.g., .webm before .mp3 conversion)
-            if not os.path.isfile(filename):
-                base, _ = os.path.splitext(filename)
-                filename = f"{base}.mp3"
+                # Adjust for possible extensions (e.g., .webm before .mp3 conversion)
+                if not os.path.isfile(filename):
+                    base, _ = os.path.splitext(filename)
+                    filename = f"{base}.mp3"
 
-            # Ensure the file exists after potential post-processing
-            if not os.path.isfile(filename):
-                return None, "Erreur : Fichier téléchargé introuvable après conversion."
+                # Ensure the file exists after potential post-processing
+                if not os.path.isfile(filename):
+                    return None, "Erreur : Fichier téléchargé introuvable après conversion.", link
 
-            # Convert the downloaded file to bytes for Streamlit preview
-            with open(filename, "rb") as f:
-                audio_bytes = f.read()
+                # Convert the downloaded file to bytes for Streamlit preview
+                with open(filename, "rb") as f:
+                    audio_bytes = f.read()
 
-        return audio_bytes, filename
-    except Exception as e:
-        if "HTTP Error 403" in str(e):
-            return None, "Erreur : Accès refusé ou contenu protégé. Vérifiez vos permissions."
-        return None, f"Erreur lors du téléchargement : {e}"
+                return audio_bytes, filename, link
+        except Exception as e:
+            if "HTTP Error 403" in str(e):
+                st.warning(f"Lien protégé détecté lors de la tentative {attempt}. Recherche d'un autre lien...")
+                link, new_title = search_youtube_with_metadata(metadata, attempt)
+                if not link:
+                    return None, "Erreur : Aucune correspondance libre trouvée après plusieurs tentatives.", None
+                attempt += 1
+            else:
+                return None, f"Erreur lors du téléchargement : {e}", link
+
+    return None, "Erreur : Téléchargement échoué après plusieurs tentatives.", None
 
 # ==========================
 # Streamlit App
@@ -140,7 +149,7 @@ def main():
                 st.info("Lien Spotify détecté. Extraction des métadonnées...")
                 metadata = get_spotify_metadata(link)
                 st.write(f"Méta-données trouvées : {metadata}")
-                youtube_url = search_youtube_with_metadata(metadata)
+                youtube_url, _ = search_youtube_with_metadata(metadata)
                 if youtube_url:
                     st.info("Correspondance trouvée sur YouTube.")
                     link = youtube_url
@@ -152,7 +161,7 @@ def main():
                 st.info("Lien SoundCloud détecté. Extraction des métadonnées...")
                 metadata = get_soundcloud_metadata(link)
                 st.write(f"Méta-données trouvées : {metadata}")
-                youtube_url = search_youtube_with_metadata(metadata)
+                youtube_url, _ = search_youtube_with_metadata(metadata)
                 if youtube_url:
                     st.info("Correspondance trouvée sur YouTube.")
                     link = youtube_url
@@ -162,16 +171,20 @@ def main():
 
             elif platform == "YouTube":
                 st.info("Lien YouTube détecté. Téléchargement en cours...")
+                metadata = ""
 
             else:
                 st.error("Plateforme non prise en charge.")
                 return
 
             with st.spinner("Téléchargement en cours..."):
-                audio_bytes, result = download_from_link(link)
+                audio_bytes, result, final_link = download_with_retry(link, metadata)
                 if audio_bytes:
                     st.success("Téléchargement et conversion terminés !")
                     st.audio(audio_bytes, format="audio/mp3")
+
+                    # Display the final link used
+                    st.write(f"[Lien de la vidéo utilisée]({final_link})")
 
                     # Button to download the audio file
                     st.download_button(
