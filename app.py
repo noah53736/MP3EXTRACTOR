@@ -129,6 +129,15 @@ def download_with_retry(link, metadata, output_format="mp3", custom_name=None):
     return None, "Erreur : Téléchargement échoué après plusieurs tentatives.", None
 
 # ==========================
+# Accessibility Improvements
+# ==========================
+def accessible_button(label, key=None):
+    """
+    Creates an accessible button with better ARIA support.
+    """
+    st.write(f'<button role="button" aria-label="{label}" style="padding: 10px; font-size: 16px;">{label}</button>', unsafe_allow_html=True)
+
+# ==========================
 # Streamlit App
 # ==========================
 def main():
