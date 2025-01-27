@@ -113,6 +113,8 @@ def download_from_link(link):
 
         return audio_bytes, filename
     except Exception as e:
+        if "HTTP Error 403" in str(e):
+            return None, "Erreur : Accès refusé ou contenu protégé. Vérifiez vos permissions."
         return None, f"Erreur lors du téléchargement : {e}"
 
 # ==========================
@@ -122,6 +124,7 @@ def main():
     st.title("Téléchargeur universel de contenu (MP3 uniquement)")
 
     st.write("Entrez un lien provenant de YouTube, SoundCloud, Spotify, ou d'autres plateformes prises en charge.")
+    st.write("**Créé par NOAH BEN**")
 
     # Input for URL
     link = st.text_input("Lien de la vidéo ou audio", "")
